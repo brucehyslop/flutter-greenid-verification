@@ -9,6 +9,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:http/http.dart' as http;
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:webview_flutter/webview_flutter.dart';
@@ -21,60 +22,6 @@ import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 
 void main() => runApp(const MaterialApp(home: WebViewExample()));
 
-const String kLocalExamplePage = '''
-<!DOCTYPE html>
-<html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <title>Page Title</title>
-        <meta name="viewport" content="width=device-width,initial-scale=1">
-        <link rel="stylesheet" href="https://simpleui-au.vixverify.com/df/assets/stylesheets/greenid.css" />
-        <style>
-        </style>
-    </head>
-    <body>
-        <div id="green-id-verification"></div>
-
-        <script src="https://simpleui-au.vixverify.com/df/javascripts/greenidConfig.js"></script>
-        <script src="https://simpleui-au.vixverify.com/df/javascripts/greenidui.min.js"></script>
-        <script>
-            greenidUI.setup({
-                environment: 'test',
-                frameId: 'green-id-verification',
-                errorCallback: onError,
-                sessionCompleteCallback: onSessionComplete,
-                sessionCancelledCallback: onSessionCancel,
-            });
-
-            greenidConfig.setOverrides({
-                "visa_short_title": "Foreign passport",
-                "visa_title": "Foreign passport (Australian visa)",
-                "visa_info_title": "Foreign passport (Australian visa)",
-                "visadvs_short_title": "Foreign passport",
-                "visadvs_title": "Foreign passport (Australian visa)",
-                "visadvs_info_title": "About the Foreign passport (Australian visa) source"
-            });
-            
-            // greenidUI.show('mhits', 'KqM-rTB-Xfw-JLw', "eb8259b428d692d75623d375fadd5c1814b1fdd0");
-
-            function onError(param1, param2) {
-
-                VerificationError.postMessage('greenID validation error ' +  param1 + ' : ' + param2);
-            }
-
-            function onSessionComplete(data) {
-
-                VerificationComplete.postMessage('greenID validation complete: ' + data);
-            }
-
-            function onSessionCancel() {
-
-                VerificationCancelled.postMessage('greenID validation cancelled');
-            }
-        </script>
-    </body>
-</html>
-''';
 
 class WebViewExample extends StatefulWidget {
   const WebViewExample({super.key});
@@ -108,8 +55,8 @@ class _WebViewExampleState extends State<WebViewExample> {
     controller
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
 //       ..setBackgroundColor(const Color(0x00000000))
-//       ..setNavigationDelegate(
-//         NavigationDelegate(
+      ..setNavigationDelegate(
+        NavigationDelegate(
 //           onProgress: (int progress) {
 //             debugPrint('WebView is loading (progress : $progress%)');
 //           },
@@ -128,35 +75,25 @@ class _WebViewExampleState extends State<WebViewExample> {
 //   isForMainFrame: ${error.isForMainFrame}
 //           ''');
 //           },
-//           onNavigationRequest: (NavigationRequest request) {
-//             debugPrint('allowing navigation to ${request.url}');
-//             return NavigationDecision.navigate;
-//           },
-//           onUrlChange: (UrlChange change) {
-//             debugPrint('url change to ${change.url}');
-//           },
-//         ),
-//       )
-      // handle verification error from the GreenID UI
-      ..addJavaScriptChannel(
-        'VerificationError',
-        onMessageReceived: (JavaScriptMessage message) {
-            debugPrint('verification error: ${message.message}');
-        })
-      // handle verification cancelled from the GreenID UI
-      ..addJavaScriptChannel(
-        'VerificationCancelled',
-        onMessageReceived: (JavaScriptMessage message) {
-            debugPrint('verification cancelled: ${message.message}');
-        })
-      // handle verification completed from the GreenID UI
-      ..addJavaScriptChannel(
-        'VerificationComplete',
-        onMessageReceived: (JavaScriptMessage message) {
-            debugPrint('verification complete: ${message.message}');
-        })
-      ..loadHtmlString(kLocalExamplePage);
+        //   onNavigationRequest: (NavigationRequest request) {
+        //     debugPrint('allowing navigation to ${request.url}');
+        //     return NavigationDecision.navigate;
+        //   },
+          onUrlChange: (UrlChange change) {
+            debugPrint('url change to ${change.url}');
+            if (change.url == 'rocket://fiserve.success') {
+                debugPrint('fiserve failure');
+                // TODO: route to send screen??
 
+            } else if (change.url == 'rocket://fiserve.failure') {
+                debugPrint('fiserve failure');
+                // TODO: route to load screen??
+            }
+          },
+        ),
+      );
+      // handle verification error from the GreenID UI
+      
     
     // #docregion platform_features
     if (controller.platform is AndroidWebViewController) {
@@ -172,7 +109,43 @@ class _WebViewExampleState extends State<WebViewExample> {
   @override
   Widget build(BuildContext context) {
 
-    final tokenController = TextEditingController();
+    // final amountCtrl = TextEditingController();
+
+    cardLoad() async {
+
+        final response = await http.post(
+            Uri.parse('https://api.staging.rocketremit.com/v3/customer/load/card'),
+            headers: <String, String>{
+                'X-Auth-Token': 'ACCESS TOKEN',
+                'Content-Type': 'application/json; charset=UTF-8',
+            },
+            body: jsonEncode({
+                'amount': 5000,
+                // 'successUrl': 'rocket://fiserve.success',
+                // 'failureUrl': 'rocket://fiserve.failure'
+            }),
+        );
+
+        if (response.statusCode == 200) {
+
+            final jsonResp = jsonDecode(response.body);
+
+            // form encode the params from the card load response
+            final formParams = jsonResp['params'].keys.map((key) => "${Uri.encodeComponent(key)}=${Uri.encodeComponent(jsonResp['params'][key])}").join("&");
+            debugPrint(formParams);
+
+            _controller.loadRequest(
+                Uri.parse(jsonResp['fiservUrl']),
+                method: LoadRequestMethod.post,
+                headers: <String, String>{'Content-Type': 'application/x-www-form-urlencoded'},
+                body: Uint8List.fromList(formParams.codeUnits),
+            );
+
+        } else {
+            // then throw an exception.
+            throw Exception('Failed to create get fiserv details');
+        }
+    }
 
     return Scaffold(
       backgroundColor: Colors.green,
@@ -181,25 +154,23 @@ class _WebViewExampleState extends State<WebViewExample> {
           Row(
             children: <Widget>[
 
-                SizedBox(
-                    width: 300,
-                    child: TextField(
-                        controller: tokenController,
-                        decoration: InputDecoration(
-                            border: OutlineInputBorder(),
-                            labelText: 'Token',
-                        ),
-                    ),
-                ),
+                // SizedBox(
+                //     width: 300,
+                //     child: TextField(
+                //         controller: amountCtrl,
+                //         decoration: InputDecoration(
+                //             border: OutlineInputBorder(),
+                //             labelText: 'Amount',
+                //         ),
+                //         keyboardType: TextInputType.number,
+                //         // inputFormatters: <TextInputFormatter>[
+                //         //      FilteringTextInputFormatter.digitsOnly
+                //         // ]
+                //     ),
+                // ),
                 IconButton(
-                    icon: const Icon(Icons.verified_user),
-                    // trigger the display (show) of the GreenID verification UI 
-                    // parameters: 
-                    //  1. GreenID API user
-                    //  2. GreenID API secret
-                    //  3. the customers GreenID token, this is returned when the customer KYC data has been submitted,
-                    //     or retrieved after KYC data has previously been submitted. 
-                    onPressed: () => _controller.runJavaScript("greenidUI.show('mhits', 'KqM-rTB-Xfw-JLw', '${tokenController.text}');")
+                    icon: const Icon(Icons.payments),
+                    onPressed: () => cardLoad()
                 ),
             ])
         ],

@@ -17,10 +17,8 @@ samples, guidance on mobile development, and a full API reference.
 
 ## Usage
 
-Enter the individual verification token and click the verification icon.
+Replace the acccess token on line 119 of `lib/mail.dart` with a valid token.
 
-The verification token can be retrieved via the Rocket Remit API.
- - POST https://api.staging.rocketremit.com/v3/register/details (submitted customer KYC data)
- - GET https://api.staging.rocketremit.com/v3/register/verification/greenid/token (retrieve existing token after KYC details entered)
+Click the payment icon to navigate to the fiserv card load page with a hard coded $50 load amount
 
  
